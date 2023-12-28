@@ -158,11 +158,6 @@ void setup() {
   Serial.println();
 #endif
 
-  // empty eeprom
-  for (int i = 0; i < 512; i++) {
-    eeprom.write(i, 0);
-  }
-
   // ================================================================
   // Wifi manager extra paramters
   WiFiManagerParameter custom_mqtt_host("server", "mqtt host", mqtt_host,
