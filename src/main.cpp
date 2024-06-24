@@ -21,28 +21,28 @@
 #define D8 15 // SPI Bus SS (CS)
 #define D9 3  // RX0 (Serial console)
 #define D10 1 // TX0 (Serial console)
-#define MOISTURE_SAMPLE_DELAY 1000
+#define MOISTURE_SAMPLE_DELAY 5000
 #define PUMP_ON_TIME 5000
 
 #define MAX_MQTT_HOST_LEN 40
 #define MAX_MQTT_PORT_LEN 6
 #define EEPROM_LAST_WATERED_ADDRESS MAX_MQTT_HOST_LEN + MAX_MQTT_PORT_LEN + 1
-#define LUX_TOPIC "planter2.0/light"
-#define MOISTURE_TOPIC "planter2.0/moisture"
-#define REQUEST_TOPIC "planter2.0/request"
+#define LUX_TOPIC "planter/light"
+#define MOISTURE_TOPIC "planter/moisture"
+#define REQUEST_TOPIC "planter/request"
 #define REQUEST_WATER_DATE 'D'
 #define REQUEST_WATER 'W'
 #define REQUEST_LIGHTS_TOGGLE_OVERRIDE 'L'
 #define REQUEST_LIGHTS_VALUE 'V'
-#define RESPOND_TOPIC "planter2.0/respond"
-#define RESPOND_OVERRIDE_TOPIC "planter2.0/respond/override"
-#define RESPOND_DATE_TOPIC "planter2.0/respond/date"
-#define RESPOND_LIGHT_LEVEL_TOPIC "planter2.0/respond/light"
+#define RESPOND_TOPIC "planter/respond"
+#define RESPOND_OVERRIDE_TOPIC "planter/respond/override"
+#define RESPOND_DATE_TOPIC "planter/respond/date"
+#define RESPOND_LIGHT_LEVEL_TOPIC "planter/respond/light"
 #define AP_NAME "Smart Planter"
 
-#define MQTT_HOST "broker.hivemq.com"
+#define MQTT_HOST "192.168.1.150"
 #define MQTT_PORT 1883
-// #define DEBUG
+#define DEBUG_EEPROM
 
 EEPROM_24C08_SWI2C eeprom(D2, D1, 0x50);
 AsyncMqttClient mqttClient;
@@ -171,6 +171,8 @@ void setup() {
 
   if (eeprom.read(0) != 0) {
     for (int i = 0; i < MAX_MQTT_HOST_LEN; i++) {
+      Serial.println("Reading from eeprom: " + String(i) + ": " +
+                     String(char(eeprom.read(i))));
       mqtt_host[i] = char(eeprom.read(i));
     }
     for (int i = 0; i < MAX_MQTT_PORT_LEN; i++) {
@@ -203,9 +205,12 @@ void setup() {
   // ================================================================
   // save mqtt host and port in eeprom
   if (shouldSaveConfig) {
+    Serial.println();
     Serial.println("saving config");
     strcpy(mqtt_host, custom_mqtt_host.getValue());
     strcpy(mqtt_port, custom_mqtt_port.getValue());
+    Serial.println("mqtt host: " + String(mqtt_host));
+    Serial.println("mqtt port: " + String(mqtt_port));
     for (int i = 0; i < MAX_MQTT_HOST_LEN; i++) {
       eeprom.write(i, mqtt_host[i]);
     }
@@ -216,16 +221,17 @@ void setup() {
   }
 }
 
+float lux;
+
 void loop() {
   timeClient.update();
   if (sensor.hasValue()) {
-    float lux = sensor.getLux();
+    lux = sensor.getLux();
     if (!sensor.saturated()) {
 #ifdef DEBUG
       Serial.print("Light level: ");
       Serial.println(lux);
 #endif
-      mqttClient.publish(LUX_TOPIC, 0, false, String(lux).c_str());
     }
     sensor.adjustSettings(90);
     sensor.start();
@@ -243,11 +249,8 @@ void loop() {
 
   if (millis() - lastMilis > MOISTURE_SAMPLE_DELAY) {
     int dryness = analogRead(soilMoisture);
-#ifdef DEBUG
-    Serial.print("Soil Moisture: ");
-    Serial.println(dryness);
-#endif
     mqttClient.publish(MOISTURE_TOPIC, 0, false, String(dryness).c_str());
+    mqttClient.publish(LUX_TOPIC, 0, false, String(lux).c_str());
     lastMilis = millis();
   }
 
@@ -281,6 +284,8 @@ void loop() {
       lastbtnSetLastWateredState == false) {
     Serial.println("Set last watered date");
     recordLastWateredDate();
+    mqttClient.publish(RESPOND_DATE_TOPIC, 0, false,
+                       String(readLongFromEEPROM(EEPROM_LAST_WATERED_ADDRESS)).c_str());
     lastbtnSetLastWateredState = true;
   } else if (digitalRead(btnSetLastWatered) == HIGH &&
              lastbtnSetLastWateredState == true) {
